@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 HH_VACANCIES_URL = "https://api.hh.ru/vacancies"
 DEFAULT_KEYWORDS = ("AI", "LLM", "Python")
+REQUEST_HEADERS = {"User-Agent": "AnalyticCrew/1.0"}
 
 
 class HHParser(BaseParser):
@@ -39,7 +40,7 @@ class HHParser(BaseParser):
                         "per_page": self.per_page,
                         "page": page,
                     },
-                    headers={"User-Agent": "analytic-crew-scout/1.0"},
+                    headers=REQUEST_HEADERS,
                 )
                 items = payload.get("items", [])
                 for item in items:
@@ -64,7 +65,7 @@ class HHParser(BaseParser):
             details = await self.get_json(
                 session=session,
                 url=detail_url,
-                headers={"User-Agent": "analytic-crew-scout/1.0"},
+                headers=REQUEST_HEADERS,
             )
         except Exception:
             logger.exception("Failed to fetch vacancy details for %s", vacancy_id)

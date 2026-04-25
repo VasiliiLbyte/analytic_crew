@@ -6,10 +6,10 @@ Input:
 - cycle_id
 - raw_signals: list of objects with:
   - id (UUID)
-  - source_url
   - source_type
-  - content_snippet
-  - raw_data_json
+  - headline (short title)
+  - summary (brief description)
+  - raw_highlights (short extracted metadata)
   - timestamp
 
 Goals:
@@ -19,6 +19,8 @@ Goals:
 4. Explain why each trend matters for startup/business opportunity generation.
 
 Rules:
+- Work only with short headlines and brief summaries provided in the input.
+- Do not assume access to full article/job texts.
 - Focus on business-relevant trends: demand shifts, tooling adoption, workflow pain points, pricing pressure, distribution channels, regulation impact, AI enablement, etc.
 - Use evidence from signals only. Do not invent facts.
 - Every trend must reference at least 1 source signal ID from the input.

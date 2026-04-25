@@ -13,8 +13,8 @@ from app.services.parsers.base_parser import BaseParser, RawSignal
 logger = logging.getLogger(__name__)
 
 HABR_FEEDS: tuple[str, ...] = (
-    "https://habr.com/ru/rss/hub/develop/",
-    "https://habr.com/ru/rss/hub/it-infrastructure/",
+    "https://habr.com/ru/rss/articles/",
+    "https://habr.com/ru/rss/best/daily/",
 )
 
 

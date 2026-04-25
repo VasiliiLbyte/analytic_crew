@@ -14,6 +14,8 @@ from app.models.base import Cycle, Trend
 logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "trend_spotter.txt"
+MAX_SIGNALS_FOR_LLM = 15
+MAX_TEXT_LENGTH = 1000
 
 
 async def trend_spotter_node(state: AgentState) -> AgentState:
@@ -53,23 +55,14 @@ async def _generate_trends_from_llm(cycle_id: UUID, raw_signals: list[dict]) -> 
     if not raw_signals:
         return []
 
+    compact_signals = _prepare_signals_for_llm(raw_signals)
     prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
     llm = build_llm_client().with_structured_output(TrendSpotterOutput)
 
     user_payload = json.dumps(
         {
             "cycle_id": str(cycle_id),
-            "raw_signals": [
-                {
-                    "id": str(signal["id"]),
-                    "source_url": signal.get("source_url"),
-                    "source_type": signal.get("source_type"),
-                    "content_snippet": signal.get("content_snippet"),
-                    "raw_data_json": signal.get("raw_data_json"),
-                    "timestamp": signal.get("timestamp").isoformat() if signal.get("timestamp") else None,
-                }
-                for signal in raw_signals
-            ],
+            "raw_signals": compact_signals,
         },
         ensure_ascii=True,
     )
@@ -103,3 +96,62 @@ async def _generate_trends_from_llm(cycle_id: UUID, raw_signals: list[dict]) -> 
             )
         )
     return payloads
+
+
+def _prepare_signals_for_llm(raw_signals: list[dict]) -> list[dict]:
+    sorted_signals = sorted(
+        raw_signals,
+        key=lambda signal: signal.get("timestamp") or "",
+        reverse=True,
+    )
+    selected = sorted_signals[:MAX_SIGNALS_FOR_LLM]
+    compact: list[dict] = []
+    for signal in selected:
+        raw_data = signal.get("raw_data_json")
+        compact.append(
+            {
+                "id": str(signal["id"]),
+                "source_type": signal.get("source_type"),
+                "source_url": _trim_text(signal.get("source_url")),
+                "headline": _trim_text(_extract_headline(signal)),
+                "summary": _trim_text(signal.get("content_snippet")),
+                "raw_highlights": _trim_text(_compact_raw_data(raw_data)),
+                "timestamp": signal.get("timestamp").isoformat() if signal.get("timestamp") else None,
+            }
+        )
+    return compact
+
+
+def _extract_headline(signal: dict) -> str:
+    raw_data = signal.get("raw_data_json")
+    if isinstance(raw_data, dict):
+        for key in ("title", "trend_name", "name"):
+            value = raw_data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    snippet = signal.get("content_snippet")
+    return snippet if isinstance(snippet, str) else ""
+
+
+def _compact_raw_data(raw_data: object) -> str:
+    if isinstance(raw_data, dict):
+        preferred_keys = (
+            "query",
+            "title",
+            "company",
+            "area",
+            "skills",
+            "categories",
+            "trend_tags",
+            "description",
+        )
+        compact_dict = {key: raw_data.get(key) for key in preferred_keys if key in raw_data}
+        return json.dumps(compact_dict, ensure_ascii=True)
+    if isinstance(raw_data, list):
+        return json.dumps(raw_data[:10], ensure_ascii=True)
+    return str(raw_data or "")
+
+
+def _trim_text(value: object) -> str:
+    text = value if isinstance(value, str) else str(value or "")
+    return text.strip()[:MAX_TEXT_LENGTH]

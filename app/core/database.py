@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
+from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+# Ensure local .env values are available for os.getenv.
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[2] / ".env")
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
