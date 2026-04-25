@@ -1,26 +1,29 @@
 from __future__ import annotations
 
+import json
 import logging
-from datetime import datetime, timezone
+from pathlib import Path
 from uuid import UUID
 
-from app.agents.state import AgentState, RawSignalPayload, TrendPayload
+from app.agents.schemas import TrendSpotterOutput
+from app.agents.state import AgentState, TrendPayload
+from app.core.config import build_llm_client
 from app.core.database import SessionLocal
 from app.models.base import Cycle, Trend
 
 logger = logging.getLogger(__name__)
 
-TREND_KEYWORDS: tuple[str, ...] = ("AI", "SaaS", "Web3")
+PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "trend_spotter.txt"
 
 
 async def trend_spotter_node(state: AgentState) -> AgentState:
     cycle_id = state.get("cycle_id")
     if cycle_id is None:
-        logger.warning("Trend spotter skipped due to missing cycle_id")
+        logger.warning("Trend spotter skipped due to missing cycle id")
         return {**state, "trends": [], "stage": "completed"}
 
-    grouped = _group_signals_by_keyword(raw_signals=state.get("raw_signals", []))
-    trend_payloads = _build_trend_payloads(grouped=grouped)
+    raw_signals = state.get("raw_signals", [])
+    trend_payloads = await _generate_trends_from_llm(cycle_id=cycle_id, raw_signals=raw_signals)
 
     async with SessionLocal() as session:
         trend_models = [
@@ -38,48 +41,64 @@ async def trend_spotter_node(state: AgentState) -> AgentState:
 
         cycle = await session.get(Cycle, cycle_id)
         if cycle is not None:
-            cycle.current_phase = "completed"
-            cycle.status = "completed"
-            cycle.end_date = datetime.now(timezone.utc)
+            cycle.current_phase = "analyst"
 
         await session.commit()
         logger.info("Trend spotter persisted %s trends for cycle %s", len(trend_models), cycle_id)
 
-    return {**state, "trends": trend_payloads, "stage": "completed"}
+    return {**state, "trends": trend_payloads, "stage": "analyst"}
 
 
-def _group_signals_by_keyword(raw_signals: list[RawSignalPayload]) -> dict[str, list[RawSignalPayload]]:
-    grouped: dict[str, list[RawSignalPayload]] = {keyword: [] for keyword in TREND_KEYWORDS}
-    for signal in raw_signals:
-        searchable_text = " ".join(
-            [
-                str(signal.get("content_snippet") or ""),
-                str(signal.get("raw_data_json") or ""),
-                str(signal.get("source_type") or ""),
-            ]
-        ).lower()
+async def _generate_trends_from_llm(cycle_id: UUID, raw_signals: list[dict]) -> list[TrendPayload]:
+    if not raw_signals:
+        return []
 
-        for keyword in TREND_KEYWORDS:
-            if keyword.lower() in searchable_text:
-                grouped[keyword].append(signal)
-    return grouped
+    prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
+    llm = build_llm_client().with_structured_output(TrendSpotterOutput)
 
+    user_payload = json.dumps(
+        {
+            "cycle_id": str(cycle_id),
+            "raw_signals": [
+                {
+                    "id": str(signal["id"]),
+                    "source_url": signal.get("source_url"),
+                    "source_type": signal.get("source_type"),
+                    "content_snippet": signal.get("content_snippet"),
+                    "raw_data_json": signal.get("raw_data_json"),
+                    "timestamp": signal.get("timestamp").isoformat() if signal.get("timestamp") else None,
+                }
+                for signal in raw_signals
+            ],
+        },
+        ensure_ascii=True,
+    )
 
-def _build_trend_payloads(grouped: dict[str, list[RawSignalPayload]]) -> list[TrendPayload]:
+    llm_result = await llm.ainvoke(
+        [
+            ("system", prompt_text),
+            ("user", user_payload),
+        ]
+    )
+
+    parsed = TrendSpotterOutput.model_validate(llm_result)
     payloads: list[TrendPayload] = []
-    for keyword, signals in grouped.items():
-        if not signals:
+    available_signal_ids = {signal["id"] for signal in raw_signals}
+
+    for trend in parsed.trends:
+        filtered_signal_ids = [signal_id for signal_id in trend.related_signal_ids if signal_id in available_signal_ids]
+        if not filtered_signal_ids:
             continue
 
-        signal_ids: list[UUID] = [signal["id"] for signal in signals]
         payloads.append(
             TrendPayload(
-                trend_name=keyword,
-                description=f"Keyword cluster for {keyword} based on scout signals.",
-                related_signals=signal_ids,
+                trend_name=trend.trend_name,
+                description=trend.description,
+                related_signals=filtered_signal_ids,
                 metadata_json={
-                    "signal_count": len(signals),
-                    "source_types": sorted({str(signal.get("source_type") or "unknown") for signal in signals}),
+                    "confidence": trend.confidence,
+                    "key_drivers": trend.key_drivers,
+                    "signal_count": len(filtered_signal_ids),
                 },
             )
         )
