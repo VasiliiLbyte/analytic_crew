@@ -6,7 +6,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from app.agents.graph import graph_app
+from app.agents.graph import run_graph
 from app.models.base import Cycle
 from app.core.database import SessionLocal
 
@@ -25,8 +25,18 @@ async def main() -> None:
             "raw_signals": [],
             "trends": [],
             "stage": "scout",
+            "user_id": None,
+            "workspace_id": None,
+            "analysis_drafts": [],
+            "scored_ideas": [],
+            "validated_cards": [],
+            "feedback_history": [],
+            "errors": [],
+            "human_decision": None,
+            "human_comment": None,
+            "target_agent": None,
         }
-        result = await graph_app.ainvoke(initial_state)
+        result = await run_graph(initial_state)
 
         print("Execution finished")
         print(f"cycle_id: {result.get('cycle_id')}")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Dict, List, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -66,3 +66,25 @@ class ScoredIdea(BaseModel):
 
 class CriticOutput(BaseModel):
     scored_ideas: list[ScoredIdea]
+
+
+class IdeaCard(BaseModel):
+    title: str
+    problem_statement: str
+    proposed_solution: str
+    target_audience: str
+    mvp_path: List[str]
+    team_size_needed: int
+    budget_to_1m_rub_per_month: str
+    gtm_scenarios: List[Dict[str, Any]]
+    cross_niche_potential: str
+    monetization_models: List[str]
+    sources_used: List[str]
+
+
+class SynthesizerOutput(BaseModel):
+    cards: List[IdeaCard]
+
+
+class ValidatorOutput(BaseModel):
+    validated_cards: List[Dict[str, Any]]  # будет расширяться в validator_node
