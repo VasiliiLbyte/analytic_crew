@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -182,3 +182,16 @@ class HumanFeedback(Base):
 
     idea: Mapped[Idea | None] = relationship(back_populates="feedback_items")
     user: Mapped[User | None] = relationship(back_populates="feedback_items")
+
+
+class LLMCache(Base):
+    __tablename__ = "llm_cache"
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    prompt_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    response_json: Mapped[dict[str, Any] | list[Any]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    hit_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")

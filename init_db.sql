@@ -93,3 +93,12 @@ CREATE TABLE IF NOT EXISTS human_feedback (
     comment TEXT,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS llm_cache (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    prompt_hash TEXT UNIQUE NOT NULL,
+    response_json JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    hit_count INT DEFAULT 0
+);
