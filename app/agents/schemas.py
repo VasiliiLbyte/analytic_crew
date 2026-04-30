@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -51,3 +51,18 @@ class AnalystOutput(BaseModel):
 
     def as_market_analysis_json(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
+
+
+class ScoredIdea(BaseModel):
+    idea_title: str
+    scores: dict[str, float]
+    total_score: float
+    verdict: Literal['pass', 'fail', 'borderline']
+    red_team_attacks: list[str]
+    counterarguments: list[str]
+    fact_check_notes: list[str]
+    improvement_suggestions: list[str]
+
+
+class CriticOutput(BaseModel):
+    scored_ideas: list[ScoredIdea]
