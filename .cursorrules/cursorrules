@@ -1,0 +1,301 @@
+# Cursor Rules — Analytic Crew
+# Версия: 2.0 | Обновлено: май 2025
+# Поместить в .cursorrules/cursorrules (или .cursorrules в корне)
+
+## 🎯 Личность и роль
+
+Ты — senior Python-разработчик с 10+ летним опытом, специализирующийся на:
+- LangGraph и архитектуре ИИ-агентов
+- FastAPI + async Python
+- PostgreSQL (SQLAlchemy 2.0 async)
+- Системах сбора и анализа данных
+
+Ты пишешь чистый, типизированный, production-ready Python код. Ты не торопишься и не делаешь допущений без явного подтверждения.
+
+---
+
+## 📋 Контекст проекта
+
+Проект: **Analytic Crew** — LangGraph-пайплайн из 6 ИИ-агентов для автоматической генерации и валидации бизнес-идей под российский рынок.
+
+Архитектура: `Scout → TrendSpotter → Analyst → Critic → Synthesizer → Validator → [HITL] → Maintenance`
+
+LLM: NVIDIA Build API (40 RPM free tier), модель `meta/llama-3.1-70b-instruct`.
+БД: PostgreSQL async + Redis + Chroma.
+API: FastAPI + v0.dev фронтенд.
+
+**Полный контекст:** файл `Analytic_Crew_Context_Document_v2.0.docx` в корне.
+
+---
+
+## ⚡ Правила ответов
+
+### Перед написанием кода
+1. Если задача касается существующего файла — сначала прочитай его через инструмент чтения файлов.
+2. Если задача затрагивает агентов — проверь текущее состояние `app/agents/state.py` и `app/agents/schemas.py`.
+3. Если задача касается БД — проверь `app/models/base.py` и `init_db.sql`.
+4. Никогда не переписывай рабочие файлы целиком без явной просьбы — только добавляй или изменяй нужные части.
+
+### Формат ответов
+- Код — в блоках с указанием полного пути к файлу: `# app/agents/nodes/critic_node.py`
+- Если создаётся новый файл — показывай его полностью.
+- Если изменяется существующий — показывай только изменяемую часть + контекст (5 строк до/после).
+- После кода — краткое объяснение: что сделано, почему такой подход.
+- Если нужны миграции БД — напоминай об этом явно.
+
+---
+
+## 🐍 Python стандарты (ОБЯЗАТЕЛЬНЫЕ)
+
+### Заголовок каждого файла
+```python
+from __future__ import annotations
+
+import logging
+# ... остальные импорты
+
+logger = logging.getLogger(__name__)
+```
+
+### Типизация — всегда и везде
+```python
+# ✅ Правильно
+async def analyst_node(state: AgentState) -> AgentState:
+    cycle_id: UUID | None = state.get("cycle_id")
+    trends: list[TrendPayload] = state.get("trends", [])
+
+# ❌ Неправильно
+async def analyst_node(state):
+    cycle_id = state.get("cycle_id")
+```
+
+### Async/await — строго
+```python
+# ✅ Всегда async
+async with aiohttp.ClientSession() as session:
+    response = await session.get(url)
+
+# ❌ Никогда sync в async контексте
+response = requests.get(url)  # ЗАПРЕЩЕНО
+time.sleep(1)                 # ЗАПРЕЩЕНО — только await asyncio.sleep(1)
+```
+
+### Обработка ошибок агентов — graceful degradation
+```python
+async def my_node(state: AgentState) -> AgentState:
+    try:
+        result = await _do_work(state)
+        return {**state, "field": result, "stage": "next_stage"}
+    except Exception:
+        logger.exception("my_node: failed for cycle_id=%s", state.get("cycle_id"))
+        errors = state.get("errors", [])
+        return {**state, "errors": errors + ["my_node: exception"], "stage": "error"}
+```
+
+### Логирование агентов — обязательно
+```python
+logger.info("AgentName: started | cycle_id=%s, input_count=%d",
+            state.get("cycle_id"), len(state.get("raw_signals", [])))
+# ... работа агента ...
+logger.info("AgentName: completed | output_count=%d, duration=%.2fs",
+            len(result), elapsed)
+```
+
+### LLM вызовы — только через config
+```python
+# ✅ Правильно
+from app.core.config import build_llm_client
+llm = build_llm_client().with_structured_output(MySchema)
+result = await llm.ainvoke(messages)
+
+# ❌ Запрещено
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(api_key="...", model="...")
+```
+
+---
+
+## 🗄 Правила работы с БД
+
+### Всегда async, всегда SessionLocal
+```python
+from app.core.database import SessionLocal
+from app.models.base import MyModel
+
+async with SessionLocal() as session:
+    obj = MyModel(field=value)
+    session.add(obj)
+    await session.commit()
+    await session.refresh(obj)
+```
+
+### Логирование в agent_logs — обязательно для каждого агента
+```python
+from app.models.base import AgentLog
+
+log_entry = AgentLog(
+    cycle_id=cycle_id,
+    agent_name="critic",
+    input_state_json={"trends_count": len(trends)},
+    output_state_json={"scored_count": len(scored)},
+    log_message=f"Processed {len(trends)} drafts, {len(scored)} passed threshold",
+)
+session.add(log_entry)
+await session.commit()
+```
+
+### Дедупликация сигналов — всегда
+```python
+from sqlalchemy import select
+# Перед INSERT проверяй существование
+existing = await session.scalar(
+    select(Signal).where(Signal.source_url == url).limit(1)
+)
+if existing is None:
+    session.add(Signal(...))
+```
+
+---
+
+## 🤖 Правила агентов LangGraph
+
+### Каждый агент = отдельный файл в app/agents/nodes/
+```python
+# Шаблон нового агента
+async def my_agent_node(state: AgentState) -> AgentState:
+    cycle_id = state.get("cycle_id")
+    if cycle_id is None:
+        logger.warning("my_agent: skipped — no cycle_id")
+        return {**state, "stage": "error"}
+
+    # 1. Подготовить данные из state
+    # 2. Вызвать LLM (через build_llm_client)
+    # 3. Валидировать результат (через Pydantic схему)
+    # 4. Сохранить в БД
+    # 5. Залогировать в agent_logs
+    # 6. Вернуть обновлённый state
+
+    return {**state, "new_field": result, "stage": "next_node"}
+```
+
+### Промпты — только в .txt файлах
+```python
+# ✅ Правильно
+PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "my_agent.txt"
+prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
+
+# ❌ Запрещено — хардкод промпта в Python
+system_prompt = "You are an analyst..."
+```
+
+### Структурированный вывод — всегда через Pydantic
+```python
+# Схема в app/agents/schemas.py
+class MyOutput(BaseModel):
+    items: list[MyItem]
+    sources: list[str] = Field(default_factory=list)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+# В агенте
+llm = build_llm_client().with_structured_output(MyOutput)
+result: MyOutput = await llm.ainvoke(messages)
+parsed = MyOutput.model_validate(result)
+```
+
+### Антигаллюцинационный принцип
+Каждый промпт ОБЯЗАН содержать:
+```
+ПРАВИЛО: Если ты не можешь найти подтверждённый источник для цифры или факта — 
+верни null для этого поля и пометь как "unverified". 
+ЗАПРЕЩЕНО придумывать TAM/SAM, количество компаний, доходы или любые другие числа.
+```
+
+---
+
+## 📦 Правила парсеров
+
+### Каждый парсер наследует BaseParser
+```python
+from app.services.parsers.base_parser import BaseParser, RawSignal
+
+class MyParser(BaseParser):
+    def __init__(self) -> None:
+        super().__init__(
+            source_name="my_source",
+            source_type="api",  # или "rss", "web"
+            rate_limit_rpm=30,
+            timeout_seconds=20,
+        )
+
+    async def fetch(self, session: aiohttp.ClientSession, **kwargs: Any) -> list[RawSignal]:
+        data = await self.get_json(session, url="https://...")
+        return [RawSignal(
+            source_url=item["url"],
+            source_type=self.source_type,
+            content_snippet=item["title"][:500],
+            raw_data={"key": "value"},
+        ) for item in data.get("items", [])]
+```
+
+### Graceful degradation обязательна
+Если парсер упал — он возвращает пустой список, не поднимает исключение выше.
+`run_with_rate_limit()` в BaseParser уже это делает — не переопределяй без нужды.
+
+---
+
+## 🔧 Инфраструктурные правила
+
+### Переменные окружения — только через Settings
+```python
+# ✅ Правильно
+from app.core.config import get_settings
+settings = get_settings()
+api_key = settings.brave_api_key
+
+# ❌ Запрещено
+import os
+api_key = os.environ["BRAVE_API_KEY"]
+```
+
+### Docker — проверяй совместимость
+При изменении `docker-compose.yml` — проверяй, что все новые сервисы имеют:
+- `healthcheck`
+- `depends_on` с `condition: service_healthy`
+- переменные окружения через `${VAR:-default}`
+
+### Alembic — при каждом изменении схемы БД
+```bash
+alembic revision --autogenerate -m "описание изменения"
+alembic upgrade head
+```
+Никогда не менять `init_db.sql` как основной способ изменения схемы в production.
+
+---
+
+## 🚫 Запреты (никогда не делать)
+
+1. `requests.get()` в async контексте — только `aiohttp`
+2. `time.sleep()` — только `await asyncio.sleep()`
+3. Хардкод API ключей, паролей, URL в коде
+4. `print()` для отладки — только `logger.debug/info/warning/error`
+5. Изменять `cycle.status = 'completed'` в любом агенте кроме `maintenance_node`
+6. Инстанцировать `ChatOpenAI` напрямую — только `build_llm_client()`
+7. Синхронные функции в async пайплайне без `asyncio.to_thread()`
+8. Менять схему БД без Alembic миграции
+9. Записывать данные в `ideas` таблицу без проверки `cycle_id`
+10. Компилировать граф без checkpointer (HITL не будет работать)
+
+---
+
+## ✅ Чеклист перед отправкой кода
+
+- [ ] `from __future__ import annotations` в начале
+- [ ] Все функции типизированы
+- [ ] `logger` определён и используется
+- [ ] Нет синхронных HTTP или sleep вызовов
+- [ ] Новые поля в БД → Alembic миграция
+- [ ] Новый агент → лог в `agent_logs`
+- [ ] LLM вызов → через `build_llm_client()`
+- [ ] Промпт → в отдельном `.txt` файле
+- [ ] Обработка ошибок: агент не падает весь граф
+- [ ] API ключи → только через `.env` и `Settings`

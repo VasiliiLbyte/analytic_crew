@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from app.agents.schemas import AnalystOutput
 from app.agents.state import AgentState, TrendPayload
@@ -21,32 +22,39 @@ async def analyst_node(state: AgentState) -> AgentState:
     trends = state.get("trends", [])
     if cycle_id is None or not trends:
         logger.warning("Analyst node skipped due to missing cycle or trends")
-        return {**state, "stage": "completed"}
+        return {**state, "stage": "analyst_completed", "analysis_drafts": []}
 
-    selected_trend = _pick_trend(trends)
-    analysis = await _generate_analysis(selected_trend=selected_trend)
+    # Берём TOP-10 трендов по confidence (или все, если меньше 10)
+    top_trends = sorted(
+        trends,
+        key=lambda t: float((t.get("metadata_json") or {}).get("confidence", 0.0)),
+        reverse=True
+    )[:10]
 
-    async with SessionLocal() as session:
-        idea = Idea(
-            cycle_id=cycle_id,
-            title=analysis.title,
-            problem=analysis.problem,
-            solution=analysis.solution,
-            market_analysis_json=analysis.as_market_analysis_json(),
-            validation_status="pending",
-        )
-        session.add(idea)
+    analysis_drafts: list[dict[str, Any]] = []
+    for trend in top_trends:
+        analysis = await _generate_analysis(selected_trend=trend)
+        draft = {
+            "trend_id": trend.get("trend_name"),  # или любой уникальный идентификатор
+            "title": analysis.title,
+            "problem": analysis.problem,
+            "solution": analysis.solution,
+            "market_analysis_json": analysis.as_market_analysis_json() if hasattr(analysis, "as_market_analysis_json") else {},
+            "sources": [str(s) for s in trend.get("related_signals", [])],
+        }
+        analysis_drafts.append(draft)
 
-        cycle = await session.get(Cycle, cycle_id)
-        if cycle is not None:
-            cycle.current_phase = "completed"
-            cycle.status = "completed"
-            cycle.end_date = datetime.now(timezone.utc)
+    # Сохраняем черновики в state (анализ_drafts)
+    new_state = {
+        **state,
+        "analysis_drafts": analysis_drafts,
+        "stage": "analyst_completed",
+    }
 
-        await session.commit()
-        logger.info("Analyst node persisted idea for cycle %s", cycle_id)
-
-    return {**state, "stage": "completed"}
+    # НЕ сохраняем Idea в БД здесь и НЕ ставим cycle.status = completed!
+    # Это будет делать Critic / Synthesizer / Maintenance позже
+    logger.info(f"Analyst node generated {len(analysis_drafts)} drafts for cycle {cycle_id}")
+    return new_state
 
 
 def _pick_trend(trends: list[TrendPayload]) -> TrendPayload:

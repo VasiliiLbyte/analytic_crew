@@ -26,3 +26,14 @@ class AgentState(TypedDict):
     raw_signals: list[RawSignalPayload]
     trends: list[TrendPayload]
     stage: str
+    # Новые поля для Sprint 2 (мультиарендность + полный пайплайн)
+    user_id: UUID | None
+    workspace_id: UUID | None
+    analysis_drafts: list[dict[str, Any]]
+    scored_ideas: list[dict[str, Any]]
+    validated_cards: list[dict[str, Any]]
+    feedback_history: list[dict[str, Any]]
+    errors: list[str]
+    human_decision: str | None
+    human_comment: str | None
+    target_agent: str | None
