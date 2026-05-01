@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
 
@@ -20,20 +17,6 @@ from app.agents.nodes.trend_spotter_node import trend_spotter_node
 from app.agents.nodes.validator_node import validator_node
 from app.agents.state import AgentState
 from app.core.config import get_settings
-
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-
-
-def checkpoint_dsn() -> str:
-    """DSN for psycopg (LangGraph AsyncPostgresSaver), not asyncpg."""
-    raw = os.getenv("CHECKPOINT_DATABASE_URL") or os.getenv("DATABASE_URL") or ""
-    if not raw:
-        msg = "DATABASE_URL or CHECKPOINT_DATABASE_URL is required for the LangGraph checkpointer"
-        raise ValueError(msg)
-    if raw.startswith("postgresql+asyncpg://"):
-        return "postgresql://" + raw.removeprefix("postgresql+asyncpg://")
-    return raw
-
 
 def route_after_critic(state: AgentState) -> str:
     scored = state.get("scored_ideas") or []
@@ -92,11 +75,15 @@ def build_state_graph() -> StateGraph:
 
 @asynccontextmanager
 async def build_graph() -> AsyncIterator[Any]:
-    """Compile LangGraph with AsyncPostgresSaver; keep connection open for the whole run."""
-    dsn = checkpoint_dsn()
+    """Compile graph with AsyncPostgresSaver and HITL interrupt point."""
+    settings = get_settings()
+    dsn = settings.database_url.replace("+asyncpg", "")
     async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
         await checkpointer.setup()
-        yield build_state_graph().compile(checkpointer=checkpointer)
+        yield build_state_graph().compile(
+            checkpointer=checkpointer,
+            interrupt_before=["human_review_node"],
+        )
 
 
 async def run_graph(initial_state: AgentState) -> AgentState:

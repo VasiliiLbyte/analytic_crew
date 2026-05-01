@@ -21,6 +21,10 @@ class Settings(BaseSettings):
         default="https://integrate.api.nvidia.com/v1",
         alias="NVIDIA_BASE_URL",
     )
+    database_url: str = Field(
+        default="postgresql+asyncpg://postgres:postgres@db:5432/analytic_crew",
+        alias="DATABASE_URL",
+    )
     redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
 
     @property
