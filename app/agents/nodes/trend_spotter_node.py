@@ -57,7 +57,7 @@ async def _generate_trends_from_llm(cycle_id: UUID, raw_signals: list[dict]) -> 
 
     compact_signals = _prepare_signals_for_llm(raw_signals)
     prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
-    llm = build_llm_client().with_structured_output(TrendSpotterOutput)
+    llm = (await build_llm_client()).with_structured_output(TrendSpotterOutput)
 
     user_payload = json.dumps(
         {

@@ -19,6 +19,7 @@ from app.agents.nodes.synthesizer_node import synthesizer_node
 from app.agents.nodes.trend_spotter_node import trend_spotter_node
 from app.agents.nodes.validator_node import validator_node
 from app.agents.state import AgentState
+from app.core.config import get_settings
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
@@ -100,6 +101,10 @@ async def build_graph() -> AsyncIterator[Any]:
 
 async def run_graph(initial_state: AgentState) -> AgentState:
     """Run full pipeline with Postgres checkpointer (required for HITL / interrupt)."""
+    settings = get_settings()
+    # Pre-initialize shared infra used by nodes.
+    _ = settings.get_rate_limiter()
+    _ = await settings.get_llm_cache()
     async with build_graph() as app:
         return await app.ainvoke(initial_state)
 

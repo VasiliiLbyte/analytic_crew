@@ -66,7 +66,7 @@ def _pick_trend(trends: list[TrendPayload]) -> TrendPayload:
 
 async def _generate_analysis(selected_trend: TrendPayload) -> AnalystOutput:
     prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
-    llm = build_llm_client().with_structured_output(AnalystOutput)
+    llm = (await build_llm_client()).with_structured_output(AnalystOutput)
 
     user_payload = json.dumps(
         {

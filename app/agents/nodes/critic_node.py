@@ -8,7 +8,7 @@ from typing import Any
 from app.agents.schemas import CriticOutput
 from app.agents.scoring import calculate_total_score, PASS_THRESHOLD
 from app.agents.state import AgentState
-from app.core.config import build_llm_client
+from app.core.config import build_llm_client, get_settings
 from app.core.database import SessionLocal
 from app.models.base import AgentLog
 
@@ -24,15 +24,25 @@ async def critic_node(state: AgentState) -> AgentState:
         return {**state, "stage": "critic_completed", "scored_ideas": []}
 
     scored_ideas: list[dict[str, Any]] = []
-    llm = build_llm_client().with_structured_output(CriticOutput)
+    settings = get_settings()
+    rate_limiter = settings.get_rate_limiter()
+    cache = await settings.get_llm_cache()
+    llm = (await build_llm_client()).with_structured_output(CriticOutput)
 
     for draft in analysis_drafts:
         prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
         user_payload = json.dumps({"draft": draft}, ensure_ascii=False)
+        cache_key = prompt_text + user_payload
 
         try:
-            llm_result = await llm.ainvoke([("system", prompt_text), ("user", user_payload)])
-            critic_output: CriticOutput = CriticOutput.model_validate(llm_result)
+            cached = await cache.get(cache_key)
+            if cached:
+                critic_output = CriticOutput.model_validate(cached)
+            else:
+                await rate_limiter.wait_for_token()
+                llm_result = await llm.ainvoke([("system", prompt_text), ("user", user_payload)])
+                critic_output = CriticOutput.model_validate(llm_result)
+                await cache.set(cache_key, critic_output.model_dump(mode="json"))
 
             for scored in critic_output.scored_ideas:
                 scored_dict = scored.model_dump(mode="json")

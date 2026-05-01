@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.agents.schemas import SynthesizerOutput
 from app.agents.state import AgentState
-from app.core.config import build_llm_client
+from app.core.config import build_llm_client, get_settings
 from app.core.database import SessionLocal
 from app.models.base import AgentLog
 
@@ -21,14 +21,23 @@ async def synthesizer_node(state: AgentState) -> AgentState:
         logger.warning("Synthesizer skipped: no passed ideas")
         return {**state, "stage": "synthesizer_completed", "validated_cards": []}
 
-    llm = build_llm_client().with_structured_output(SynthesizerOutput)
+    settings = get_settings()
+    rate_limiter = settings.get_rate_limiter()
+    cache = await settings.get_llm_cache()
+    llm = (await build_llm_client()).with_structured_output(SynthesizerOutput)
     cards = []
     for idea in passed[:5]:  # топ-5
         prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
-        result = await llm.ainvoke(
-            [("system", prompt_text), ("user", json.dumps(idea, ensure_ascii=False))]
-        )
-        output = SynthesizerOutput.model_validate(result)
+        user_payload = json.dumps(idea, ensure_ascii=False)
+        cache_key = prompt_text + user_payload
+        cached = await cache.get(cache_key)
+        if cached:
+            output = SynthesizerOutput.model_validate(cached)
+        else:
+            await rate_limiter.wait_for_token()
+            result = await llm.ainvoke([("system", prompt_text), ("user", user_payload)])
+            output = SynthesizerOutput.model_validate(result)
+            await cache.set(cache_key, output.model_dump(mode="json"))
         cards.extend(output.cards)
 
         # логируем
