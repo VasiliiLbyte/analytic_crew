@@ -25,7 +25,12 @@ async def trend_spotter_node(state: AgentState) -> AgentState:
         return {**state, "trends": [], "stage": "completed"}
 
     raw_signals = state.get("raw_signals", [])
-    trend_payloads = await _generate_trends_from_llm(cycle_id=cycle_id, raw_signals=raw_signals)
+    try:
+        trend_payloads = await _generate_trends_from_llm(cycle_id=cycle_id, raw_signals=raw_signals)
+    except Exception as exc:
+        logger.exception("Trend spotter LLM step failed for cycle %s", cycle_id)
+        errors = state.get("errors", [])
+        return {**state, "trends": [], "stage": "analyst", "errors": errors + [f"trend_spotter: {exc}"]}
 
     async with SessionLocal() as session:
         trend_models = [

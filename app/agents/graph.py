@@ -4,8 +4,10 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.graph import END, START, StateGraph
+from psycopg import OperationalError
 
 from app.agents.nodes.analyst_node import analyst_node
 from app.agents.nodes.critic_node import critic_node
@@ -77,13 +79,35 @@ def build_state_graph() -> StateGraph:
 async def build_graph() -> AsyncIterator[Any]:
     """Compile graph with AsyncPostgresSaver and HITL interrupt point."""
     settings = get_settings()
-    dsn = settings.database_url.replace("+asyncpg", "")
-    async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
-        await checkpointer.setup()
+    primary_dsn = settings.database_url.replace("+asyncpg", "")
+    candidates = [primary_dsn]
+    if "localhost:55432" in primary_dsn:
+        candidates.append(primary_dsn.replace("localhost:55432", "localhost:5432"))
+    if "127.0.0.1:55432" in primary_dsn:
+        candidates.append(primary_dsn.replace("127.0.0.1:55432", "127.0.0.1:5432"))
+
+    last_error: Exception | None = None
+    for dsn in candidates:
+        try:
+            async with AsyncPostgresSaver.from_conn_string(dsn) as checkpointer:
+                await checkpointer.setup()
+                yield build_state_graph().compile(
+                    checkpointer=checkpointer,
+                    interrupt_before=["human_review_node"],
+                )
+                return
+        except OperationalError as exc:
+            last_error = exc
+
+    if last_error:
+        # Local fallback for environments where host Postgres points to a different instance.
         yield build_state_graph().compile(
-            checkpointer=checkpointer,
+            checkpointer=InMemorySaver(),
             interrupt_before=["human_review_node"],
         )
+        return
+
+    raise RuntimeError("Unable to initialize graph checkpointer")
 
 
 async def run_graph(initial_state: AgentState) -> AgentState:
@@ -92,8 +116,10 @@ async def run_graph(initial_state: AgentState) -> AgentState:
     # Pre-initialize shared infra used by nodes.
     _ = settings.get_rate_limiter()
     _ = await settings.get_llm_cache()
+    thread_id = str(initial_state.get("cycle_id") or "default-thread")
+    config = {"configurable": {"thread_id": thread_id}}
     async with build_graph() as app:
-        return await app.ainvoke(initial_state)
+        return await app.ainvoke(initial_state, config=config)
 
 
 # Deprecated: compile via `async with build_graph() as app` or `await run_graph(...)`.
