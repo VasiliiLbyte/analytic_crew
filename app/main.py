@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -21,6 +22,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
 app = FastAPI(title="Analytic Crew API", version="2.0")
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origin_regex=r"https://.*\.v0\.dev",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(cycles.router, prefix="/api")
 app.include_router(ideas.router, prefix="/api")

@@ -22,8 +22,13 @@ from app.core.config import get_settings
 
 def route_after_critic(state: AgentState) -> str:
     scored = state.get("scored_ideas") or []
+    if not scored:
+        return "maintenance_node"
     if any(x.get("verdict") == "pass" for x in scored):
         return "synthesizer_node"
+    streak = int(state.get("analyst_retry_count", 0))
+    if streak < 3:
+        return "analyst_node"
     return "maintenance_node"
 
 
@@ -57,7 +62,11 @@ def build_state_graph() -> StateGraph:
     graph_builder.add_conditional_edges(
         "critic_node",
         route_after_critic,
-        {"synthesizer_node": "synthesizer_node", "maintenance_node": "maintenance_node"},
+        {
+            "synthesizer_node": "synthesizer_node",
+            "analyst_node": "analyst_node",
+            "maintenance_node": "maintenance_node",
+        },
     )
     graph_builder.add_edge("synthesizer_node", "validator_node")
     graph_builder.add_edge("validator_node", "human_review_node")

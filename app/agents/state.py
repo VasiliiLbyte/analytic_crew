@@ -37,3 +37,4 @@ class AgentState(TypedDict):
     human_decision: str | None
     human_comment: str | None
     target_agent: str | None
+    analyst_retry_count: int  # подряд critic без pass; route: streak < 3 → ещё один analyst

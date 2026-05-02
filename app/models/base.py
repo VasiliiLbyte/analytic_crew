@@ -130,6 +130,9 @@ class Idea(Base):
     critic_score: Mapped[float | None] = mapped_column(Float)
     critic_comment: Mapped[str | None] = mapped_column(Text)
     validation_status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    validation_data_json: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSONB)
+    # draft / approved / rejected — основной статус для фронта (Sprint 3)
+    status: Mapped[str] = mapped_column(String, nullable=False, server_default="draft")
     gtm_plan_json: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSONB)
     sources_json: Mapped[dict[str, Any] | list[Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(

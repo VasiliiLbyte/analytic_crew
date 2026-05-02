@@ -2,33 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import os
-from uuid import uuid4
 
 from app.agents.graph import run_graph
+from app.agents.initial_state import build_initial_agent_state
 from app.agents.state import AgentState
 
 
-def _build_initial_state() -> AgentState:
-    return {
-        "cycle_id": uuid4(),
-        "raw_signals": [],
-        "trends": [],
-        "stage": "start",
-        "user_id": None,
-        "workspace_id": None,
-        "analysis_drafts": [],
-        "scored_ideas": [],
-        "validated_cards": [],
-        "feedback_history": [],
-        "errors": [],
-        "human_decision": None,
-        "human_comment": None,
-        "target_agent": None,
-    }
-
-
 async def main() -> None:
-    initial_state = _build_initial_state()
+    initial_state = build_initial_agent_state()
     if os.getenv("MOCK_RUN", "false").lower() in {"1", "true", "yes", "on"}:
         result: AgentState = {
             **initial_state,

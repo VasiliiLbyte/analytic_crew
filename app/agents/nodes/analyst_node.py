@@ -2,15 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from app.agents.schemas import AnalystOutput
 from app.agents.state import AgentState, TrendPayload
 from app.core.config import build_llm_client
-from app.core.database import SessionLocal
-from app.models.base import Cycle, Idea
 
 logger = logging.getLogger(__name__)
 

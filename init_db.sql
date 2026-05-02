@@ -68,9 +68,15 @@ CREATE TABLE IF NOT EXISTS ideas (
     validation_status TEXT DEFAULT 'pending', -- pending, approved, rejected, rework
     gtm_plan_json JSONB,
     sources_json JSONB, -- List of source links/references
+    validation_data_json JSONB,
+    status TEXT NOT NULL DEFAULT 'draft',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Sprint 3: existing databases (CREATE IF NOT EXISTS skips new columns)
+ALTER TABLE ideas ADD COLUMN IF NOT EXISTS validation_data_json JSONB;
+ALTER TABLE ideas ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft';
 
 -- Agent Logs Table
 CREATE TABLE IF NOT EXISTS agent_logs (

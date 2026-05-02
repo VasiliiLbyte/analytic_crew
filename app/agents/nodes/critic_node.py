@@ -21,7 +21,12 @@ async def critic_node(state: AgentState) -> AgentState:
     analysis_drafts = state.get("analysis_drafts", [])
     if not analysis_drafts:
         logger.warning("Critic node skipped: no analysis_drafts")
-        return {**state, "stage": "critic_completed", "scored_ideas": []}
+        return {
+            **state,
+            "stage": "critic_completed",
+            "scored_ideas": [],
+            "analyst_retry_count": int(state.get("analyst_retry_count", 0)),
+        }
 
     scored_ideas: list[dict[str, Any]] = []
     settings = get_settings()
@@ -65,10 +70,16 @@ async def critic_node(state: AgentState) -> AgentState:
             logger.error(f"Critic LLM error: {e}")
             state.setdefault("errors", []).append(str(e))
 
+    has_pass = any(x.get("verdict") == "pass" for x in scored_ideas)
+    prev_streak = int(state.get("analyst_retry_count", 0))
+    # Подряд исходов critic без pass; для route_after_critic: при streak < 3 ещё можно вернуться к analyst.
+    streak = 0 if has_pass else prev_streak + 1
+
     new_state = {
         **state,
         "scored_ideas": scored_ideas,
         "stage": "critic_completed",
+        "analyst_retry_count": streak,
     }
-    logger.info(f"Critic node processed {len(scored_ideas)} ideas")
+    logger.info("Critic node processed %s ideas (has_pass=%s)", len(scored_ideas), has_pass)
     return new_state
