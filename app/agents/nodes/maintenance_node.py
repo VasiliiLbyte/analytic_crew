@@ -8,13 +8,12 @@ from uuid import UUID
 from sqlalchemy import delete, func, select
 
 from app.agents.state import AgentState
+from app.core.config import get_settings
 from app.core.database import SessionLocal
+from app.core.vector_store import ChromaStore
 from app.models.base import Cycle, Idea, Signal, Trend
 
 logger = logging.getLogger(__name__)
-
-# Chroma: очистка эмбеддингов — следующий спринт (закомментировано по P1)
-# from app.services.chroma_service import prune_old_embeddings
 
 
 def _passed_ideas_count_from_state(state: AgentState) -> int:
@@ -25,6 +24,8 @@ def _passed_ideas_count_from_state(state: AgentState) -> int:
 async def maintenance_node(state: AgentState) -> AgentState:
     cycle_id: UUID | None = state.get("cycle_id")
     passed_count = _passed_ideas_count_from_state(state)
+    settings = get_settings()
+    chroma = ChromaStore(base_url=settings.chroma_url)
 
     async with SessionLocal() as session:
         cycle: Cycle | None = await session.get(Cycle, cycle_id) if cycle_id else None
@@ -52,7 +53,23 @@ async def maintenance_node(state: AgentState) -> AgentState:
                 or 0
             )
 
-        # ТЗ P1: удалить сигналы старше 30 дней (в схеме нет created_at — используем timestamp)
+            stmt_rejected = select(Idea).where(Idea.cycle_id == cycle_id, Idea.status == "rejected")
+            rejected_rows = (await session.scalars(stmt_rejected)).all()
+            for idea in rejected_rows:
+                logger.info(
+                    "Maintenance: rejected idea queued for Chroma (stub) idea_id=%s title=%s",
+                    idea.id,
+                    (idea.title or "")[:120],
+                )
+                await chroma.upsert_rejected_idea(
+                    {
+                        "idea_id": str(idea.id),
+                        "cycle_id": str(cycle_id),
+                        "title": idea.title,
+                        "status": idea.status,
+                    }
+                )
+
         cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         del_result = await session.execute(delete(Signal).where(Signal.timestamp < cutoff))
         deleted_old = del_result.rowcount if del_result.rowcount is not None else 0
@@ -73,4 +90,5 @@ async def maintenance_node(state: AgentState) -> AgentState:
         }
         logger.info("Maintenance completed stats=%s", stats)
 
+    await chroma.close()
     return {**state, "stage": "completed"}

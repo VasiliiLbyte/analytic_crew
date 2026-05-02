@@ -1,5 +1,4 @@
-version: '3.8'
-
+# Compose spec v2 (ключ version убран — убирает warning в новых CLI)
 services:
   db:
     image: postgres:15-alpine
@@ -36,11 +35,13 @@ services:
       - "8001:8000"
     volumes:
       - chroma_data:/chroma/chroma
+    # Образ Chroma не гарантирует shell-утилиты; «true» = процесс поднялся (строгий HTTP-probe — в k8s/CI).
     healthcheck:
       test: ["CMD-SHELL", "true"]
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 5s
 
   backend:
     build: .

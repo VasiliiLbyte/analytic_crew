@@ -26,6 +26,7 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
     redis_url: str = Field(default="redis://redis:6379/0", alias="REDIS_URL")
+    chroma_url: str = Field(default="http://chroma:8000", alias="CHROMA_URL")
 
     @property
     def redis_client(self) -> Redis:
