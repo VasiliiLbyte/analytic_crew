@@ -17,6 +17,11 @@ PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "analyst.txt"
 async def analyst_node(state: AgentState) -> AgentState:
     cycle_id = state.get("cycle_id")
     trends = state.get("trends", [])
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    rate_limiter = settings.get_rate_limiter()
+
     if cycle_id is None or not trends:
         logger.warning("Analyst node skipped due to missing cycle or trends")
         return {**state, "stage": "analyst_completed", "analysis_drafts": []}
@@ -30,7 +35,7 @@ async def analyst_node(state: AgentState) -> AgentState:
 
     analysis_drafts: list[dict[str, Any]] = []
     for trend in top_trends:
-        analysis = await _generate_analysis(selected_trend=trend)
+        analysis = await _generate_analysis(selected_trend=trend, rate_limiter=rate_limiter)
         draft = {
             "trend_id": trend.get("trend_name"),  # или любой уникальный идентификатор
             "title": analysis.title,
@@ -46,6 +51,7 @@ async def analyst_node(state: AgentState) -> AgentState:
         **state,
         "analysis_drafts": analysis_drafts,
         "stage": "analyst_completed",
+        "analyst_retry_count": int(state.get("analyst_retry_count") or 0) + 1,
     }
 
     # НЕ сохраняем Idea в БД здесь и НЕ ставим cycle.status = completed!
@@ -61,7 +67,7 @@ def _pick_trend(trends: list[TrendPayload]) -> TrendPayload:
     )
 
 
-async def _generate_analysis(selected_trend: TrendPayload) -> AnalystOutput:
+async def _generate_analysis(selected_trend: TrendPayload, rate_limiter: Any) -> AnalystOutput:
     prompt_text = PROMPT_PATH.read_text(encoding="utf-8")
     llm = (await build_llm_client()).with_structured_output(AnalystOutput)
 
@@ -77,5 +83,6 @@ async def _generate_analysis(selected_trend: TrendPayload) -> AnalystOutput:
         ensure_ascii=True,
     )
 
+    await rate_limiter.wait_for_token()
     llm_result = await llm.ainvoke([("system", prompt_text), ("user", user_payload)])
     return AnalystOutput.model_validate(llm_result)

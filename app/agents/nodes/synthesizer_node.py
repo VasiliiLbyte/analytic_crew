@@ -94,7 +94,7 @@ async def synthesizer_node(state: AgentState) -> AgentState:
             session.add(log)
 
             for card in output.cards:
-                card_dict = _persist_idea_from_card(
+                card_dict = await _persist_idea_from_card(
                     session=session,
                     cycle_id=cycle_id,
                     card=card,
@@ -114,7 +114,7 @@ async def synthesizer_node(state: AgentState) -> AgentState:
     return new_state
 
 
-def _persist_idea_from_card(
+async def _persist_idea_from_card(
     session: AsyncSession,
     cycle_id: UUID,
     card: IdeaCard,
@@ -147,7 +147,7 @@ def _persist_idea_from_card(
         status="draft",
     )
     session.add(row)
-    session.flush()
+    await session.flush()
 
     out = card.model_dump(mode="json")
     out["idea_id"] = str(row.id)
