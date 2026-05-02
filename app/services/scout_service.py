@@ -5,6 +5,7 @@ import logging
 from collections.abc import Sequence
 from uuid import UUID
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import Signal
@@ -38,18 +39,35 @@ class ScoutService:
             logger.info("Scout collection completed with no signals")
             return 0
 
-        signal_models = [self._to_signal_model(signal=raw_signal, cycle_id=cycle_id) for raw_signal in raw_signals]
-        db_session.add_all(signal_models)
-
+        inserted = 0
         try:
+            for raw_signal in raw_signals:
+                row = self._to_signal_model(signal=raw_signal, cycle_id=cycle_id)
+                stmt = (
+                    pg_insert(Signal)
+                    .values(
+                        id=row.id,
+                        cycle_id=row.cycle_id,
+                        source_url=row.source_url,
+                        source_type=row.source_type,
+                        content_snippet=row.content_snippet,
+                        raw_data_json=row.raw_data_json,
+                        timestamp=row.timestamp,
+                    )
+                    .on_conflict_do_nothing(constraint="uq_signals_source_url")
+                )
+                result = await db_session.execute(stmt)
+                if result.rowcount:
+                    inserted += int(result.rowcount)
+
             await db_session.commit()
         except Exception:
             await db_session.rollback()
             logger.exception("Failed to persist scout signals")
             raise
 
-        logger.info("Scout collection persisted %s signals", len(signal_models))
-        return len(signal_models)
+        logger.info("Scout collection inserted %s new signals (attempted %s)", inserted, len(raw_signals))
+        return inserted
 
     @staticmethod
     def _to_signal_model(signal: RawSignal, cycle_id: UUID | None) -> Signal:

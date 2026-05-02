@@ -72,7 +72,7 @@ async def critic_node(state: AgentState) -> AgentState:
 
     has_pass = any(x.get("verdict") == "pass" for x in scored_ideas)
     prev_streak = int(state.get("analyst_retry_count", 0))
-    # Подряд исходов critic без pass; для route_after_critic: при streak < 3 ещё можно вернуться к analyst.
+    # Подряд исходов critic без pass; route: streak <= MAX_CRITIC_TO_ANALYST_RETRIES → analyst.
     streak = 0 if has_pass else prev_streak + 1
 
     new_state = {

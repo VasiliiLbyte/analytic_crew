@@ -20,7 +20,7 @@ async def test() -> None:
         return
     state = build_initial_agent_state()
     result = await run_graph(state)
-    print("ALL P0 BLOCKERS FIXED")
+    print("ALL P0 + P1 graph smoke OK")
     print("Final stage:", result.get("stage"))
 
 

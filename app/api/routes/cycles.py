@@ -3,22 +3,43 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.agents.graph import run_graph
 from app.agents.initial_state import build_initial_agent_state
+from app.agents.scoring import PASS_THRESHOLD
 from app.agents.state import AgentState
 from app.core.database import SessionLocal
-from app.models.base import AgentLog, Cycle
+from app.models.base import AgentLog, Cycle, Idea, Signal, Trend
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_PHASE_TO_PROGRESS: dict[str, int] = {
+    "scout": 10,
+    "trend_spotter": 22,
+    "analyst": 40,
+    "critic": 52,
+    "synthesizer": 68,
+    "validator": 82,
+    "human_review": 94,
+    "completed": 100,
+    "running": 5,
+}
+
+
+def _progress_percent(phase: str | None) -> int:
+    if not phase:
+        return 0
+    key = (phase or "").strip().lower()
+    return _PHASE_TO_PROGRESS.get(key, 15)
 
 
 @router.get("/cycle/current")
@@ -29,7 +50,35 @@ async def get_current_cycle() -> dict | None:
         cycle = result.scalar_one_or_none()
         if cycle is None:
             return None
-        return jsonable_encoder(cycle)
+
+        cid = cycle.id
+        signals_count = int(
+            await session.scalar(select(func.count()).select_from(Signal).where(Signal.cycle_id == cid)) or 0
+        )
+        trends_count = int(
+            await session.scalar(select(func.count()).select_from(Trend).where(Trend.cycle_id == cid)) or 0
+        )
+        ideas_count = int(
+            await session.scalar(select(func.count()).select_from(Idea).where(Idea.cycle_id == cid)) or 0
+        )
+        passed_ideas_count = int(
+            await session.scalar(
+                select(func.count())
+                .select_from(Idea)
+                .where(Idea.cycle_id == cid, Idea.critic_score.is_not(None), Idea.critic_score >= PASS_THRESHOLD)
+            )
+            or 0
+        )
+
+        payload = jsonable_encoder(cycle)
+        payload["timestamp"] = datetime.now(timezone.utc).isoformat()
+        payload["signals_count"] = signals_count
+        payload["trends_count"] = trends_count
+        payload["ideas_count"] = ideas_count
+        payload["passed_ideas_count"] = passed_ideas_count
+        payload["current_phase"] = cycle.current_phase
+        payload["progress_percent"] = _progress_percent(cycle.current_phase)
+        return payload
 
 
 async def fetch_latest_logs_for_cycle(cycle_id: UUID) -> list[dict]:

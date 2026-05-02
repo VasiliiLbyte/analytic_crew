@@ -20,6 +20,10 @@ from app.agents.nodes.validator_node import validator_node
 from app.agents.state import AgentState
 from app.core.config import get_settings
 
+# Максимум 2 возврата к analyst после critic без pass (streak 1..2 → analyst, 3 → maintenance).
+MAX_CRITIC_TO_ANALYST_RETRIES = 2
+
+
 def route_after_critic(state: AgentState) -> str:
     scored = state.get("scored_ideas") or []
     if not scored:
@@ -27,7 +31,7 @@ def route_after_critic(state: AgentState) -> str:
     if any(x.get("verdict") == "pass" for x in scored):
         return "synthesizer_node"
     streak = int(state.get("analyst_retry_count", 0))
-    if streak < 3:
+    if streak <= MAX_CRITIC_TO_ANALYST_RETRIES:
         return "analyst_node"
     return "maintenance_node"
 
