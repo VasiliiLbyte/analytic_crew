@@ -57,7 +57,7 @@ class ScoredIdea(BaseModel):
     idea_title: str
     scores: dict[str, float]
     total_score: float
-    verdict: Literal['pass', 'fail', 'borderline']
+    verdict: Literal["pass", "fail", "borderline"]
     red_team_attacks: list[str]
     counterarguments: list[str]
     fact_check_notes: list[str]
@@ -86,5 +86,46 @@ class SynthesizerOutput(BaseModel):
     cards: List[IdeaCard]
 
 
+class AdHypothesis(BaseModel):
+    hypothesis_title: str
+    tezis: str
+    audience: str
+    channel: str
+    creative_direction: str
+    budget_rub: int = Field(le=10000)
+    success_metric: str
+
+
+class LandingStructure(BaseModel):
+    headline: str
+    subheadline: str
+    bullet_points: list[str] = Field(min_length=3, max_length=3)
+    cta_button: str
+    trust_element: str
+
+
+class TestTimelineItem(BaseModel):
+    period: str
+    action: str
+    deliverable: str
+
+
+class SuccessCriteria(BaseModel):
+    min_interviews_positive: int
+    min_landing_conversions_pct: float
+    min_interview_wtp: int
+
+
+class ValidatedIdeaCard(BaseModel):
+    idea_title: str
+    survey_script: list[str] = Field(min_length=6, max_length=8)
+    ad_hypotheses: list[AdHypothesis] = Field(min_length=2, max_length=3)
+    landing_structure: LandingStructure
+    test_budget_rub: int = Field(le=30000)
+    test_timeline_days: list[TestTimelineItem]
+    success_criteria: SuccessCriteria
+    failure_indicators: list[str]
+
+
 class ValidatorOutput(BaseModel):
-    validated_cards: List[Dict[str, Any]]  # будет расширяться в validator_node
+    validated_cards: list[ValidatedIdeaCard]
